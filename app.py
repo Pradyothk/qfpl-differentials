@@ -6,8 +6,8 @@ import io
 
 # --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="QFPL Differentials",
-    page_icon="🏆",
+    page_title="QFPL Hub",
+    page_icon="⚽",
     layout="wide"
 )
 
@@ -470,22 +470,20 @@ Divyansh Joshi,https://fantasy.premierleague.com/entry/
 Jaskaran Singh,https://fantasy.premierleague.com/entry/
 """
 
-# --- CACHED DATA LOADING ---
+# --- CACHED FUNCTIONS ---
 @st.cache_data
 def load_data():
     try:
         # Load Lineups
         df_lineups = pd.read_csv(io.StringIO(CSV_LINEUPS))
         
-        # Clean columns (Handles your KeyError issue)
-        # We select specific columns by index: 0=Team, 1=Player, 3-9=Phases 1-7
+        # Clean columns: 0=Team, 1=Player, 3-9=Phases 1-7
         df_lineups = df_lineups.iloc[:, [0, 1, 3, 4, 5, 6, 7, 8, 9]]
         df_lineups.columns = ['Team', 'Player', '1', '2', '3', '4', '5', '6', '7']
         
         # Load Registrations
         df_reg = pd.read_csv(io.StringIO(CSV_REGISTRATIONS))
         
-        # Extract ID
         def get_id(url):
             if pd.isna(url): return None
             match = re.search(r'entry/(\d+)', str(url))
@@ -509,10 +507,8 @@ def get_fpl_elements():
         teams = {t['id']: t['short_name'] for t in data['teams']}
         return elements, teams
     except:
-        st.error("Could not fetch FPL static data.")
         return {}, {}
 
-# Not cached because it changes by gameweek and team
 def get_picks(fpl_id, gw):
     if not fpl_id or pd.isna(fpl_id): return []
     try:
@@ -524,61 +520,62 @@ def get_picks(fpl_id, gw):
         pass
     return []
 
-# --- APP UI ---
-st.title("🏆 QFPL Differential Calculator")
-st.markdown("Compare QFPL teams based on their real-time FPL squads.")
-
-# Load Data
+# --- APP START ---
 df = load_data()
 fpl_elements, fpl_teams = get_fpl_elements()
 
-if not df.empty:
-    teams_list = sorted(df['Team'].unique().tolist())
-    
-    # Inputs row
+if df.empty:
+    st.error("Could not load QFPL data.")
+    st.stop()
+
+teams_list = sorted(df['Team'].unique().tolist())
+
+# --- SIDEBAR NAV ---
+page = st.sidebar.radio("Navigation", ["1. Differential Calculator", "2. Lineup Submission Helper"])
+
+# ==========================================
+# PAGE 1: DIFFERENTIAL CALCULATOR
+# ==========================================
+if page == "1. Differential Calculator":
+    st.header("🏆 QFPL Differential Calculator")
+    st.markdown("Compare QFPL teams based on their real-time FPL squads.")
+
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        team_a = st.selectbox("Your Team", teams_list)
+        team_a = st.selectbox("Your Team", teams_list, key='t1')
     with c2:
-        # Smart opponent filtering
         opp_list = [t for t in teams_list if t != team_a]
-        team_b = st.selectbox("Opponent", opp_list)
+        team_b = st.selectbox("Opponent", opp_list, key='t2')
     with c3:
-        phase = st.selectbox("Phase", ['1', '2', '3', '4', '5', '6', '7'])
+        phase = st.selectbox("Phase", ['1', '2', '3', '4', '5', '6', '7'], key='p1')
     with c4:
-        gw = st.number_input("Gameweek", min_value=1, max_value=38, value=20)
+        gw = st.number_input("Gameweek", min_value=1, max_value=38, value=20, key='g1')
 
-    # Calculate Button
     if st.button("Calculate Differentials", type="primary", use_container_width=True):
         if team_a == team_b:
             st.warning("Select different teams!")
         else:
-            # Calculation Logic
             progress_bar = st.progress(0, text="Analyzing squads...")
             
             def get_holdings(team_name, p_bar_start, p_bar_end):
                 holdings = {}
                 roster = df[(df['Team'] == team_name) & (df[phase].str.upper().isin(['S', 'C']))]
                 total = len(roster)
+                if total == 0: return {}
                 
                 for i, (_, row) in enumerate(roster.iterrows()):
-                    # Update progress
                     progress = p_bar_start + ((i+1) / total * (p_bar_end - p_bar_start))
                     progress_bar.progress(int(progress), text=f"Fetching {team_name}: {row['Player']}")
-                    
                     multiplier = 2 if str(row[phase]).upper() == 'C' else 1
                     picks = get_picks(row['FPL_ID'], gw)
                     for pid in picks:
                         holdings[pid] = holdings.get(pid, 0) + multiplier
-                        
                 return holdings
 
-            # Run fetching (Split progress bar 0-50% for Team A, 50-100% for Team B)
             h_a = get_holdings(team_a, 0, 50)
             h_b = get_holdings(team_b, 50, 100)
             progress_bar.empty()
 
-            # Compare
             all_pids = set(h_a.keys()) | set(h_b.keys())
             results = []
             
@@ -594,25 +591,110 @@ if not df.empty:
                         'Net Advantage': net
                     })
 
-            # Display Results
             if not results:
                 st.success("Teams are perfectly matched! No differentials.")
             else:
                 res_df = pd.DataFrame(results)
-                # Sort by absolute impact
                 res_df['abs'] = res_df['Net Advantage'].abs()
                 res_df = res_df.sort_values('abs', ascending=False).drop(columns=['abs'])
                 
-                st.subheader(f"{team_a} vs {team_b}")
-                
-                # Apply styling
                 def highlight_net(val):
-                    if val > 0: return 'background-color: #d1e7dd; color: black' # Green
-                    if val < 0: return 'background-color: #f8d7da; color: black' # Red
+                    if val > 0: return 'background-color: #d1e7dd; color: black'
+                    if val < 0: return 'background-color: #f8d7da; color: black'
                     return ''
 
-                st.dataframe(
-                    res_df.style.applymap(highlight_net, subset=['Net Advantage']),
-                    use_container_width=True,
-                    hide_index=True
-                )
+                st.dataframe(res_df.style.applymap(highlight_net, subset=['Net Advantage']), use_container_width=True, hide_index=True)
+
+# ==========================================
+# PAGE 2: LINEUP HELPER
+# ==========================================
+elif page == "2. Lineup Submission Helper":
+    st.header("📋 Lineup Submission Helper")
+    st.markdown("Check bench streaks and captaincy limits before submitting.")
+    
+    col_a, col_b = st.columns(2)
+    with col_a:
+        my_team = st.selectbox("Select Your Team", teams_list)
+    with col_b:
+        next_phase = st.selectbox("Upcoming Phase to Submit", [3, 4, 5, 6, 7, 8])
+
+    roster = df[df['Team'] == my_team].copy()
+    analysis = []
+    
+    for _, row in roster.iterrows():
+        p_name = row['Player']
+        
+        # 1. Bench Streak
+        must_start = False
+        streak_msg = "OK"
+        
+        p_minus_1 = str(next_phase - 1)
+        p_minus_2 = str(next_phase - 2)
+        
+        if p_minus_1 in df.columns and p_minus_2 in df.columns:
+            val_1 = str(row[p_minus_1]).upper()
+            val_2 = str(row[p_minus_2]).upper()
+            if val_1 == 'B' and val_2 == 'B':
+                must_start = True
+                streak_msg = "⚠️ MUST START (2x Benched)"
+        
+        # 2. Captaincy
+        cap_count = 0
+        for i in range(1, next_phase):
+            if str(i) in df.columns:
+                if str(row[str(i)]).upper() == 'C':
+                    cap_count += 1
+        
+        cap_status = "✅ Available"
+        if cap_count >= 1:
+            cap_status = "❌ Used"
+        
+        analysis.append({
+            "Player": p_name,
+            "Bench Status": streak_msg,
+            "Captaincy Status": cap_status,
+            "_sort": 0 if must_start else 1  # 0 comes before 1
+        })
+    
+    df_analysis = pd.DataFrame(analysis).sort_values(by=['_sort', 'Player'])
+    
+    # --- DISPLAY LOGIC ---
+    
+    # 1. Warnings
+    must_starts = df_analysis[df_analysis['_sort'] == 0]
+    if not must_starts.empty:
+        st.error(f"🚨 MANDATORY SELECTION: These players MUST start:")
+        for p in must_starts['Player']:
+            st.markdown(f"- **{p}**")
+    else:
+        st.success("✅ No bench streak violations imminent.")
+
+    st.divider()
+    st.subheader("Squad Status")
+    
+    # 2. Main Table with Styling
+    def highlight_rows(row):
+        styles = []
+        # Row-based styling
+        if row['_sort'] == 0:
+            # Entire row Red if Must Start
+            return ['background-color: #f8d7da; font-weight: bold'] * len(row)
+        elif row['Captaincy Status'] == "❌ Used":
+             # Entire row Yellowish if Captain used
+            return ['background-color: #fff3cd'] * len(row)
+        else:
+            return [''] * len(row)
+
+    # Apply style -> Hide sort column
+    # Note: subset must match the columns shown in dataframe
+    st.dataframe(
+        df_analysis.style
+        .apply(highlight_rows, axis=1)
+        .hide(subset=['_sort'], axis='columns'),
+        use_container_width=True,
+        hide_index=True
+    )
+    
+    st.divider()
+    url = "https://docs.google.com/forms/d/e/1FAIpQLSfIPWcBe5LpLmI8dq5Jqxvw2ug9_9d2Ha9RIyREMEiBbNmyzQ/viewform?usp=header"
+    st.link_button("🚀 Go to Submission Form", url, type="primary")
