@@ -1,3 +1,12 @@
+This is a great UX improvement. We will use `st.session_state` to manage which "Screen" is visible. This allows us to create a true **Splash Screen** experience and hide the tools until the user makes a choice.
+
+Here is the updated `app.py`. I have updated the logic to start with a Home Screen, added "Back to Home" buttons on the tool pages, and filtered the phases to start from Phase 4.
+
+### `app.py`
+
+Copy this **entire** block into your GitHub file.
+
+```python
 import streamlit as st
 import pandas as pd
 import requests
@@ -10,6 +19,19 @@ st.set_page_config(
     page_icon="⚽",
     layout="wide"
 )
+
+# --- SESSION STATE SETUP (Navigation) ---
+if 'page' not in st.session_state:
+    st.session_state.page = 'home'
+
+def go_home():
+    st.session_state.page = 'home'
+
+def go_diff():
+    st.session_state.page = 'diff'
+
+def go_help():
+    st.session_state.page = 'help'
 
 # --- EMBEDDED DATA ---
 CSV_LINEUPS = """TEAM,PLAYER,TEAM,1,2,3,4,5,6,7
@@ -530,16 +552,40 @@ if df.empty:
 
 teams_list = sorted(df['Team'].unique().tolist())
 
-# --- SIDEBAR NAV ---
-page = st.sidebar.radio("Navigation", ["1. Differential Calculator", "2. Lineup Submission Helper"])
+# --- NAVIGATION ---
+if 'page' not in st.session_state:
+    st.session_state.page = 'home'
+
+def go_home(): st.session_state.page = 'home'
+def go_diff(): st.session_state.page = 'diff'
+def go_help(): st.session_state.page = 'help'
 
 # ==========================================
-# PAGE 1: DIFFERENTIAL CALCULATOR
+# PAGE: HOME (SPLASH SCREEN)
 # ==========================================
-if page == "1. Differential Calculator":
-    st.header("🏆 QFPL Differential Calculator")
-    st.markdown("Compare QFPL teams based on their real-time FPL squads.")
+if st.session_state.page == 'home':
+    st.markdown("<h1 style='text-align: center;'>🏆 QFPL Hub</h1>", unsafe_allow_html=True)
+    st.markdown("<h4 style='text-align: center; color: gray;'>Your companion for the Quarterly Fantasy Premier League</h4>", unsafe_allow_html=True)
+    st.divider()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.info("📊 **Compare Squads**")
+        st.markdown("Check how your QFPL team stacks up against opponents based on live FPL points.")
+        st.button("Go to Differential Calculator", on_click=go_diff, type="primary", use_container_width=True)
+        
+    with col2:
+        st.info("📋 **Submit Lineup**")
+        st.markdown("Validate your bench streaks and captaincy usage before submitting for the next phase.")
+        st.button("Go to Lineup Helper", on_click=go_help, type="primary", use_container_width=True)
 
+# ==========================================
+# PAGE: DIFFERENTIAL CALCULATOR
+# ==========================================
+elif st.session_state.page == 'diff':
+    st.button("🏠 Back to Home", on_click=go_home)
+    st.header("📊 Differential Calculator")
+    
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         team_a = st.selectbox("Your Team", teams_list, key='t1')
@@ -606,17 +652,18 @@ if page == "1. Differential Calculator":
                 st.dataframe(res_df.style.applymap(highlight_net, subset=['Net Advantage']), use_container_width=True, hide_index=True)
 
 # ==========================================
-# PAGE 2: LINEUP HELPER
+# PAGE: LINEUP HELPER
 # ==========================================
-elif page == "2. Lineup Submission Helper":
-    st.header("📋 Lineup Submission Helper")
-    st.markdown("Check bench streaks and captaincy limits before submitting.")
+elif st.session_state.page == 'help':
+    st.button("🏠 Back to Home", on_click=go_home)
+    st.header("📋 Lineup Helper")
     
     col_a, col_b = st.columns(2)
     with col_a:
         my_team = st.selectbox("Select Your Team", teams_list)
     with col_b:
-        next_phase = st.selectbox("Upcoming Phase to Submit", [3, 4, 5, 6, 7, 8])
+        # UPDATED: Only Phases 4-7
+        next_phase = st.selectbox("Upcoming Phase to Submit", [4, 5, 6, 7])
 
     roster = df[df['Team'] == my_team].copy()
     analysis = []
@@ -624,7 +671,7 @@ elif page == "2. Lineup Submission Helper":
     for _, row in roster.iterrows():
         p_name = row['Player']
         
-        # 1. Bench Streak
+        # 1. Bench Streak Check
         must_start = False
         streak_msg = "OK"
         
@@ -638,7 +685,7 @@ elif page == "2. Lineup Submission Helper":
                 must_start = True
                 streak_msg = "⚠️ MUST START (2x Benched)"
         
-        # 2. Captaincy
+        # 2. Captaincy Check
         cap_count = 0
         for i in range(1, next_phase):
             if str(i) in df.columns:
@@ -653,12 +700,10 @@ elif page == "2. Lineup Submission Helper":
             "Player": p_name,
             "Bench Status": streak_msg,
             "Captaincy Status": cap_status,
-            "_sort": 0 if must_start else 1  # 0 comes before 1
+            "_sort": 0 if must_start else 1
         })
     
     df_analysis = pd.DataFrame(analysis).sort_values(by=['_sort', 'Player'])
-    
-    # --- DISPLAY LOGIC ---
     
     # 1. Warnings
     must_starts = df_analysis[df_analysis['_sort'] == 0]
@@ -672,21 +717,16 @@ elif page == "2. Lineup Submission Helper":
     st.divider()
     st.subheader("Squad Status")
     
-    # 2. Main Table with Styling
+    # 2. Table with Styling
     def highlight_rows(row):
         styles = []
-        # Row-based styling
         if row['_sort'] == 0:
-            # Entire row Red if Must Start
             return ['background-color: #f8d7da; font-weight: bold'] * len(row)
         elif row['Captaincy Status'] == "❌ Used":
-             # Entire row Yellowish if Captain used
             return ['background-color: #fff3cd'] * len(row)
         else:
             return [''] * len(row)
 
-    # Apply style -> Hide sort column
-    # Note: subset must match the columns shown in dataframe
     st.dataframe(
         df_analysis.style
         .apply(highlight_rows, axis=1)
@@ -698,3 +738,5 @@ elif page == "2. Lineup Submission Helper":
     st.divider()
     url = "https://docs.google.com/forms/d/e/1FAIpQLSfIPWcBe5LpLmI8dq5Jqxvw2ug9_9d2Ha9RIyREMEiBbNmyzQ/viewform?usp=header"
     st.link_button("🚀 Go to Submission Form", url, type="primary")
+
+```
