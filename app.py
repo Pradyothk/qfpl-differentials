@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 import requests
@@ -730,5 +729,3 @@ elif st.session_state.page == 'help':
     st.divider()
     url = "https://docs.google.com/forms/d/e/1FAIpQLSfIPWcBe5LpLmI8dq5Jqxvw2ug9_9d2Ha9RIyREMEiBbNmyzQ/viewform?usp=header"
     st.link_button("🚀 Go to Submission Form", url, type="primary")
-
-```
