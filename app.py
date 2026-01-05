@@ -1,11 +1,3 @@
-This is a great UX improvement. We will use `st.session_state` to manage which "Screen" is visible. This allows us to create a true **Splash Screen** experience and hide the tools until the user makes a choice.
-
-Here is the updated `app.py`. I have updated the logic to start with a Home Screen, added "Back to Home" buttons on the tool pages, and filtered the phases to start from Phase 4.
-
-### `app.py`
-
-Copy this **entire** block into your GitHub file.
-
 ```python
 import streamlit as st
 import pandas as pd
